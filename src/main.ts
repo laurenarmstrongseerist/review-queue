@@ -1,6 +1,6 @@
-import { searchReviewRequested, searchAuthored, fetchPRDetails, fetchViewerLogin } from './github.ts'
-import type { SearchPR } from './github.ts'
-import { classifyReviewPRs, classifyMyPRs, classifyDependabotPRs, isDependabot } from './classify.ts'
+import { searchReviewRequested, searchAuthored, searchMergedAuthored, fetchPRDetails, fetchRepoDeployments, fetchViewerLogin, isAncestor } from './github.ts'
+import type { SearchPR, RepoDeployment, PRDetail } from './github.ts'
+import { classifyReviewPRs, classifyMyPRs, classifyDependabotPRs, classifyMergedPRs, isDependabot, lastBusinessDayCutoff, toIsoDate } from './classify.ts'
 import type { ReviewResult, MyPRsResult, DependabotResult } from './classify.ts'
 import { renderSection, renderSummary, renderError } from './render.ts'
 import { getToken, saveToken, clearToken } from './token.ts'
@@ -67,15 +67,18 @@ function renderActiveTab(): void {
     setText('my-building-h', t.sections.building)
     setText('my-failing-h', t.sections.failingCI)
     setText('my-draft-h', t.sections.draft)
+    setText('my-merged-h', t.sections.recentlyMerged)
     renderSection($('my-ready'), m.readyToMerge, t, { showAuthor: false })
     renderSection($('my-needsReview'), m.needsReview, t, { showAuthor: false })
     renderSection($('my-blocked'), m.blocked, t, { showThreads: true, showAuthor: false })
     renderSection($('my-building'), m.building, t, { showCI: true, showAuthor: false })
     renderSection($('my-failing'), m.failing, t, { showCI: true, showAuthor: false })
     renderSection($('my-draft'), m.drafts, t, { showAuthor: false })
+    renderSection($('my-merged'), m.recentlyMerged, t, { showAuthor: false, showBaseBranch: true, showDeployedEnvs: true, showVersion: true, mergedColumn: true })
     const total = m.readyToMerge.length + m.needsReview.length + m.blocked.length + m.building.length + m.failing.length + m.drafts.length
+    const mergedSuffix = m.recentlyMerged.length > 0 ? ` · ${m.recentlyMerged.length} recently merged` : ''
     renderSummary($('my-summary'),
-      `${total} open — ${m.readyToMerge.length} ready to merge, ${m.needsReview.length} needs review, ${m.blocked.length} blocked, ${m.building.length} building, ${m.failing.length} failing, ${m.drafts.length} draft`)
+      `${total} open — ${m.readyToMerge.length} ready to merge, ${m.needsReview.length} needs review, ${m.blocked.length} blocked, ${m.building.length} building, ${m.failing.length} failing, ${m.drafts.length} draft${mergedSuffix}`)
   }
 
   if (activeTab === 'dependabot' && cachedDependabot) {
@@ -117,6 +120,77 @@ async function fetchDetails(token: string, prs: SearchPR[], viewerLogin: string)
   return new Map(entries)
 }
 
+// Successful states include INACTIVE — a previously-successful deploy that was superseded.
+const SUCCESS_STATES = new Set(['SUCCESS', 'ACTIVE', 'INACTIVE'])
+
+// For each merged PR derive: (a) which envs it landed in — env attributed only when its tip
+// commit contains the PR merge (ancestry, not timestamp, to avoid rollback false-positives);
+// (b) the first version that shipped it — earliest post-merge deploy whose commit contains it.
+async function computePRMetadata(
+  token: string,
+  mergedPRs: SearchPR[],
+  detailsByRepo: Map<string, PRDetail[]>,
+  deploymentsByRepo: Map<string, RepoDeployment[]>,
+): Promise<Map<string, { envs: string[]; version: string | null }>> {
+  const cache = new Map<string, Promise<boolean>>()
+  const check = (repo: string, base: string, head: string): Promise<boolean> => {
+    const key = `${repo}|${base}|${head}`
+    let p = cache.get(key)
+    if (!p) {
+      p = isAncestor(token, repo, base, head).catch(() => false)
+      cache.set(key, p)
+    }
+    return p
+  }
+
+  const envTipsByRepo = new Map<string, Array<{ env: string; sha: string; createdAt: string }>>()
+  const deploysAscByRepo = new Map<string, RepoDeployment[]>()
+  for (const [repo, deploys] of deploymentsByRepo) {
+    const latestByEnv = new Map<string, { sha: string; createdAt: string }>()
+    for (const d of deploys) {
+      if (!SUCCESS_STATES.has(d.state)) continue
+      const cur = latestByEnv.get(d.environment)
+      if (!cur || d.createdAt > cur.createdAt) {
+        latestByEnv.set(d.environment, { sha: d.commitOid, createdAt: d.createdAt })
+      }
+    }
+    envTipsByRepo.set(repo, [...latestByEnv.entries()].map(([env, v]) => ({ env, ...v })))
+    deploysAscByRepo.set(repo, [...deploys].sort((a, b) => a.createdAt.localeCompare(b.createdAt)))
+  }
+
+  const result = new Map<string, { envs: string[]; version: string | null }>()
+  await Promise.all(mergedPRs.map(async (pr) => {
+    const detail = detailsByRepo.get(pr.repo)?.find((d) => d.number === pr.number)
+    if (!detail?.mergeCommitOid || !detail.mergedAt) return
+    const mergeMs = new Date(detail.mergedAt).getTime()
+
+    const tips = envTipsByRepo.get(pr.repo) ?? []
+    const envChecks = await Promise.all(
+      tips.map(async (tip) => (await check(pr.repo, detail.mergeCommitOid!, tip.sha)) ? tip : null),
+    )
+    const envs = envChecks
+      .filter((x): x is { env: string; sha: string; createdAt: string } => x !== null)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map((h) => h.env)
+
+    let version: string | null = null
+    const seenShas = new Set<string>()
+    for (const d of deploysAscByRepo.get(pr.repo) ?? []) {
+      if (!d.refName) continue
+      if (new Date(d.createdAt).getTime() < mergeMs) continue
+      if (seenShas.has(d.commitOid)) continue
+      seenShas.add(d.commitOid)
+      if (await check(pr.repo, detail.mergeCommitOid, d.commitOid)) {
+        version = d.refName
+        break
+      }
+    }
+
+    result.set(`${pr.repo}#${pr.number}`, { envs, version })
+  }))
+  return result
+}
+
 async function loadQueue(token: string): Promise<void> {
   $('error').classList.add('hidden')
 
@@ -128,10 +202,14 @@ async function loadQueue(token: string): Promise<void> {
   }
 
   try {
-    // Fetch review-requested, authored PRs, and viewer login in parallel
-    const [reviewPRs, authoredPRs, viewerLogin] = await Promise.all([
+    const cutoff = lastBusinessDayCutoff()
+    // Shift search date back one day: GitHub interprets `merged:>=YYYY-MM-DD` in UTC,
+    // so a local-midnight cutoff may exclude PRs the client-side filter would keep.
+    const searchSince = toIsoDate(new Date(cutoff.getTime() - 86_400_000))
+    const [reviewPRs, authoredPRs, mergedPRs, viewerLogin] = await Promise.all([
       searchReviewRequested(token),
       searchAuthored(token),
+      searchMergedAuthored(token, searchSince),
       fetchViewerLogin(token),
     ])
 
@@ -140,11 +218,26 @@ async function loadQueue(token: string): Promise<void> {
     const dependabotPRs = reviewPRs.filter(isDependabot)
 
     // Collect all unique PRs for GraphQL batching
-    const allPRs = [...reviewPRs, ...authoredPRs]
+    const allPRs = [...reviewPRs, ...authoredPRs, ...mergedPRs]
     const detailsByRepo = await fetchDetails(token, allPRs, viewerLogin)
+
+    const mergedRepos = [...new Set(mergedPRs.map((p) => p.repo))]
+    const deploymentsByRepo = new Map<string, RepoDeployment[]>(
+      await Promise.all(
+        mergedRepos.map(async (repo) => {
+          try { return [repo, await fetchRepoDeployments(token, repo, cutoff.getTime())] as const }
+          catch (err) {
+            console.warn(`Failed to fetch deployments for ${repo}:`, err)
+            return [repo, [] as RepoDeployment[]] as const
+          }
+        }),
+      ),
+    )
+    const metadataByPR = await computePRMetadata(token, mergedPRs, detailsByRepo, deploymentsByRepo)
 
     cachedReviews = classifyReviewPRs(humanReviewPRs, detailsByRepo)
     cachedMyPRs = classifyMyPRs(authoredPRs, detailsByRepo)
+    cachedMyPRs.recentlyMerged = classifyMergedPRs(mergedPRs, detailsByRepo, cutoff.getTime(), metadataByPR)
     cachedDependabot = classifyDependabotPRs(dependabotPRs, detailsByRepo)
 
     $('loading').classList.add('hidden')

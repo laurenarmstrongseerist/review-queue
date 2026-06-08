@@ -1,6 +1,6 @@
 import type { SearchPR, PRDetail } from './github.ts'
 
-export type Bucket = 'ready' | 'blocked' | 'skipped' | 'failing' | 'building' | 'needsReview' | 'draft'
+export type Bucket = 'ready' | 'blocked' | 'skipped' | 'failing' | 'building' | 'needsReview' | 'draft' | 'merged'
 
 export interface ClassifiedPR {
   number: number
@@ -9,10 +9,14 @@ export interface ClassifiedPR {
   author: string
   repo: string
   headRefName: string
+  baseRefName: string
   daysOpen: string
   bucket: Bucket
   unresolvedThreads: number
   ciState: string | null
+  deployedEnvs: string[]
+  version: string | null
+  ageMinutes: number
 }
 
 // ── Review queue classification (PRs requesting my review) ──
@@ -57,6 +61,7 @@ export interface MyPRsResult {
   building: ClassifiedPR[]
   failing: ClassifiedPR[]
   drafts: ClassifiedPR[]
+  recentlyMerged: ClassifiedPR[]
 }
 
 export function classifyMyPRs(
@@ -102,7 +107,62 @@ export function classifyMyPRs(
     }
   }
 
-  return { readyToMerge, needsReview, blocked, building, failing, drafts }
+  return { readyToMerge, needsReview, blocked, building, failing, drafts, recentlyMerged: [] }
+}
+
+export interface PRMergedMetadata {
+  envs: string[]
+  version: string | null
+}
+
+export function classifyMergedPRs(
+  searchResults: SearchPR[],
+  detailsByRepo: Map<string, PRDetail[]>,
+  cutoffMs: number,
+  metadataByPR: Map<string, PRMergedMetadata>,
+): ClassifiedPR[] {
+  const merged: ClassifiedPR[] = []
+  for (const pr of searchResults) {
+    const detail = detailsByRepo.get(pr.repo)?.find((d) => d.number === pr.number)
+    if (!detail?.mergedAt) continue
+    if (new Date(detail.mergedAt).getTime() < cutoffMs) continue
+
+    const classified = buildClassified(pr, detail, 'merged')
+    const elapsedMs = Date.now() - new Date(detail.mergedAt).getTime()
+    classified.daysOpen = formatMergedAgo(detail.mergedAt)
+    classified.ageMinutes = Math.floor(Math.max(0, elapsedMs) / 60_000)
+    const meta = metadataByPR.get(`${pr.repo}#${pr.number}`)
+    classified.deployedEnvs = meta?.envs ?? []
+    classified.version = meta?.version ?? null
+    merged.push(classified)
+  }
+  merged.sort((a, b) => {
+    const detA = detailsByRepo.get(a.repo)?.find((d) => d.number === a.number)?.mergedAt ?? ''
+    const detB = detailsByRepo.get(b.repo)?.find((d) => d.number === b.number)?.mergedAt ?? ''
+    return detB.localeCompare(detA)
+  })
+  return merged
+}
+
+// Returns local-midnight timestamp at the start of the most recent weekday strictly before today.
+// Mon → previous Fri. Tue–Fri → yesterday. Sat/Sun → previous Fri.
+export function lastBusinessDayCutoff(now: Date = new Date()): Date {
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  do {
+    d.setDate(d.getDate() - 1)
+  } while (d.getDay() === 0 || d.getDay() === 6)
+  return d
+}
+
+export function toIsoDate(d: Date): string {
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+function formatMergedAgo(mergedAt: string): string {
+  return formatElapsed(Date.now() - new Date(mergedAt).getTime())
 }
 
 // ── Dependabot classification ──
@@ -152,6 +212,7 @@ export function classifyDependabotPRs(
 // ── Helpers ──
 
 function buildClassified(pr: SearchPR, detail: PRDetail | null, bucket: Bucket): ClassifiedPR {
+  const age = calcActiveAge(pr.createdAt, detail?.timelineEvents ?? [])
   return {
     number: pr.number,
     title: truncateTitle(pr.title),
@@ -159,10 +220,14 @@ function buildClassified(pr: SearchPR, detail: PRDetail | null, bucket: Bucket):
     author: pr.author,
     repo: pr.repo,
     headRefName: detail?.headRefName ?? '',
-    daysOpen: calcDaysOpen(pr.createdAt, detail?.timelineEvents ?? []),
+    baseRefName: detail?.baseRefName ?? '',
+    daysOpen: age.display,
+    ageMinutes: age.minutes,
     bucket,
     unresolvedThreads: detail?.unresolvedThreads ?? 0,
     ciState: detail?.ciState ?? null,
+    deployedEnvs: [],
+    version: null,
   }
 }
 
@@ -175,7 +240,7 @@ interface TimelineEvent {
   createdAt: string
 }
 
-function calcDaysOpen(createdAt: string, events: TimelineEvent[]): string {
+function calcActiveAge(createdAt: string, events: TimelineEvent[]): { display: string; minutes: number } {
   const created = new Date(createdAt).getTime()
   const now = Date.now()
 
@@ -200,12 +265,21 @@ function calcDaysOpen(createdAt: string, events: TimelineEvent[]): string {
     draftMs += now - draftStart
   }
 
-  const activeMs = now - created - draftMs
-  const activeDays = Math.floor(activeMs / 86_400_000)
-  return activeDays < 1 ? '<1d' : `${activeDays}d`
+  const activeMs = Math.max(0, now - created - draftMs)
+  return { display: formatElapsed(activeMs), minutes: Math.floor(activeMs / 60_000) }
 }
 
-export function groupByRepo(prs: ClassifiedPR[]): Map<string, ClassifiedPR[]> {
+function formatElapsed(elapsedMs: number): string {
+  const mins = Math.floor(elapsedMs / 60_000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins} min ago`
+  const hours = Math.floor(elapsedMs / 3_600_000)
+  if (hours < 24) return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`
+  const days = Math.floor(elapsedMs / 86_400_000)
+  return `${days}d`
+}
+
+export function groupByRepo(prs: ClassifiedPR[], order: 'asc' | 'desc' = 'desc'): Map<string, ClassifiedPR[]> {
   const groups = new Map<string, ClassifiedPR[]>()
   for (const pr of prs) {
     const list = groups.get(pr.repo) ?? []
@@ -214,13 +288,9 @@ export function groupByRepo(prs: ClassifiedPR[]): Map<string, ClassifiedPR[]> {
   }
   const sorted = new Map([...groups.entries()].sort(([a], [b]) => a.localeCompare(b)))
   for (const [, list] of sorted) {
-    list.sort((a, b) => parseDays(b) - parseDays(a))
+    list.sort((a, b) => order === 'asc' ? a.ageMinutes - b.ageMinutes : b.ageMinutes - a.ageMinutes)
   }
   return sorted
-}
-
-function parseDays(pr: ClassifiedPR): number {
-  return pr.daysOpen === '<1d' ? 0 : parseInt(pr.daysOpen, 10)
 }
 
 // ── Filters ──

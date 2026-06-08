@@ -216,6 +216,23 @@ td a:hover { text-decoration: underline; }
 /* ── Building row indicator ── */
 tr.building { box-shadow: inset 3px 0 0 var(--yellow); }
 
+/* ── Merged row indicator ── */
+tr.merged { box-shadow: inset 3px 0 0 #8957e5; opacity: 0.78; }
+tr.merged:hover { opacity: 1; }
+.base-cell { color: var(--text-muted); font-size: 12px; }
+.deployed-cell { font-size: 11px; }
+.env-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.env-chip {
+  padding: 1px 6px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); color: var(--text);
+  font-size: 11px; font-weight: 500;
+  text-decoration: none;
+}
+.env-chip:hover { border-color: var(--text-muted); color: var(--link); }
+.env-empty { color: var(--text-muted); }
+.version-cell { font-size: 11px; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
 /* ── CI status ── */
 .ci-pass { color: var(--green); font-size: 11px; font-weight: 600; text-transform: uppercase; }
 .ci-fail { color: var(--red); font-size: 11px; font-weight: 600; text-transform: uppercase; }

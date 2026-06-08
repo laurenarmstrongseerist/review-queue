@@ -14,11 +14,22 @@ export interface SearchPR {
 export interface PRDetail {
   number: number
   headRefName: string
+  baseRefName: string
+  mergedAt: string | null
+  mergeCommitOid: string | null
   ciState: string | null
   unresolvedThreads: number
   reviewDecision: string | null
   viewerReviewState: string | null
   timelineEvents: TimelineEvent[]
+}
+
+export interface RepoDeployment {
+  environment: string
+  state: string
+  createdAt: string
+  commitOid: string
+  refName: string | null
 }
 
 interface TimelineEvent {
@@ -34,6 +45,9 @@ interface GraphQLResponse {
 interface RawPRDetail {
   number: number
   headRefName: string
+  baseRefName: string
+  mergedAt: string | null
+  mergeCommit: { oid: string } | null
   ciStatus: {
     nodes: Array<{
       commit: {
@@ -95,11 +109,18 @@ export function searchAuthored(token: string): Promise<SearchPR[]> {
   return searchPRs(token, 'is:pr is:open author:@me')
 }
 
+export function searchMergedAuthored(token: string, sinceDate: string): Promise<SearchPR[]> {
+  return searchPRs(token, `is:pr is:merged author:@me merged:>=${sinceDate}`)
+}
+
 function buildPRFragment(number: number): string {
   return `
     pr${number}: pullRequest(number: ${number}) {
       number
       headRefName
+      baseRefName
+      mergedAt
+      mergeCommit { oid }
       reviewDecision
       ciStatus: commits(last: 1) {
         nodes {
@@ -135,6 +156,61 @@ export async function fetchViewerLogin(token: string): Promise<string> {
   }
   const json = await response.json()
   return json.data.viewer.login
+}
+
+// Returns whether `head` includes `base` in its ancestry. Uses GitHub's compare endpoint:
+// status "ahead" or "identical" → head contains base; "behind"/"diverged" → it does not.
+export async function isAncestor(token: string, repo: string, base: string, head: string): Promise<boolean> {
+  if (base === head) return true
+  const [owner, name] = repo.split('/')
+  const response = await fetch(
+    `https://api.github.com/repos/${owner}/${name}/compare/${base}...${head}`,
+    { headers: headers(token) },
+  )
+  if (!response.ok) return false
+  const data = await response.json()
+  return data.status === 'ahead' || data.status === 'identical'
+}
+
+export async function fetchRepoDeployments(token: string, repo: string, sinceMs: number): Promise<RepoDeployment[]> {
+  const [owner, name] = repo.split('/')
+  const out: RepoDeployment[] = []
+  let before: string | null = null
+  // Safety cap: 10 pages × 100 = 1000 deploys per repo
+  for (let i = 0; i < 10; i++) {
+    const beforeArg = before ? `, before: "${before}"` : ''
+    const query = `query {
+      repository(owner: "${owner}", name: "${name}") {
+        deployments(last: 100${beforeArg}) {
+          pageInfo { startCursor hasPreviousPage }
+          nodes { environment createdAt commitOid ref { name } latestStatus { state } }
+        }
+      }
+    }`
+    const response = await fetch(GRAPHQL_API, {
+      method: 'POST',
+      headers: headers(token),
+      body: JSON.stringify({ query }),
+    })
+    if (!response.ok) {
+      throw new Error(`GraphQL request failed: ${response.status} ${response.statusText}`)
+    }
+    const json = await response.json()
+    if (json.errors?.length) {
+      throw new Error(`GraphQL errors: ${json.errors.map((e: { message: string }) => e.message).join(', ')}`)
+    }
+    const deployments = json.data?.repository?.deployments
+    const nodes: Array<{ environment: string | null; createdAt: string; commitOid: string; ref: { name: string } | null; latestStatus: { state: string } | null }> =
+      deployments?.nodes ?? []
+    for (const n of nodes) {
+      if (!n.environment || !n.latestStatus) continue
+      out.push({ environment: n.environment, state: n.latestStatus.state, createdAt: n.createdAt, commitOid: n.commitOid, refName: n.ref?.name ?? null })
+    }
+    const oldest = nodes.length > 0 ? new Date(nodes[0].createdAt).getTime() : Number.POSITIVE_INFINITY
+    if (oldest < sinceMs || !deployments?.pageInfo?.hasPreviousPage) break
+    before = deployments.pageInfo.startCursor
+  }
+  return out
 }
 
 export async function fetchPRDetails(
@@ -183,6 +259,6 @@ export async function fetchPRDetails(
       : undefined
     const viewerReviewState = viewerReview?.state ?? null
 
-    return { number: num, headRefName: pr.headRefName, ciState, unresolvedThreads, reviewDecision: pr.reviewDecision, viewerReviewState, timelineEvents }
+    return { number: num, headRefName: pr.headRefName, baseRefName: pr.baseRefName, mergedAt: pr.mergedAt, mergeCommitOid: pr.mergeCommit?.oid ?? null, ciState, unresolvedThreads, reviewDecision: pr.reviewDecision, viewerReviewState, timelineEvents }
   })
 }
