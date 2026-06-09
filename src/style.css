@@ -154,7 +154,10 @@ td a:hover { text-decoration: underline; }
 #content table .threads-cell { text-align: right; width: 80px; }
 #content table .ci-cell { text-align: center; width: 100px; }
 #content table .author-cell { text-align: left; width: 140px; }
-#content table .days-cell { text-align: right; width: 70px; }
+#content table .base-cell { text-align: left; width: 100px; }
+#content table .deployed-cell { text-align: left; width: 170px; }
+#content table .version-cell { text-align: left; width: 90px; }
+#content table .days-cell { text-align: right; width: 90px; }
 
 /* ── Type badges (default) ── */
 .type-cell { width: 76px; padding-right: 0 !important; }
@@ -493,11 +496,14 @@ footer { font-size: 13px; color: var(--text-muted); padding-top: 16px; border-to
 [data-theme="rpg"] table { width: 100%; }
 [data-theme="rpg"] .pr-cell { width: 56px; }
 [data-theme="rpg"] .type-cell { width: 36px; }
-[data-theme="rpg"] .days-cell { width: 48px; }
+[data-theme="rpg"] .days-cell { width: 90px; }
 [data-theme="rpg"] .threads-cell { width: 64px; }
 [data-theme="rpg"] .ci-cell { width: 48px; }
-[data-theme="rpg"] .title-cell { max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-theme="rpg"] .title-cell { width: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 [data-theme="rpg"] .author-cell { width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-theme="rpg"] .base-cell { width: 100px; }
+[data-theme="rpg"] .deployed-cell { width: 170px; }
+[data-theme="rpg"] .version-cell { width: 90px; }
 /* Corner ornaments */
 [data-theme="rpg"] section::before,
 [data-theme="rpg"] section::after {
