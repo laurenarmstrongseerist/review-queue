@@ -17,6 +17,7 @@ export interface PRDetail {
   baseRefName: string
   mergedAt: string | null
   mergeCommitOid: string | null
+  mergeable: string | null
   ciState: string | null
   unresolvedThreads: number
   reviewDecision: string | null
@@ -48,6 +49,7 @@ interface RawPRDetail {
   baseRefName: string
   mergedAt: string | null
   mergeCommit: { oid: string } | null
+  mergeable: string | null
   ciStatus: {
     nodes: Array<{
       commit: {
@@ -121,6 +123,7 @@ function buildPRFragment(number: number): string {
       baseRefName
       mergedAt
       mergeCommit { oid }
+      mergeable
       reviewDecision
       ciStatus: commits(last: 1) {
         nodes {
@@ -259,6 +262,6 @@ export async function fetchPRDetails(
       : undefined
     const viewerReviewState = viewerReview?.state ?? null
 
-    return { number: num, headRefName: pr.headRefName, baseRefName: pr.baseRefName, mergedAt: pr.mergedAt, mergeCommitOid: pr.mergeCommit?.oid ?? null, ciState, unresolvedThreads, reviewDecision: pr.reviewDecision, viewerReviewState, timelineEvents }
+    return { number: num, headRefName: pr.headRefName, baseRefName: pr.baseRefName, mergedAt: pr.mergedAt, mergeCommitOid: pr.mergeCommit?.oid ?? null, mergeable: pr.mergeable, ciState, unresolvedThreads, reviewDecision: pr.reviewDecision, viewerReviewState, timelineEvents }
   })
 }

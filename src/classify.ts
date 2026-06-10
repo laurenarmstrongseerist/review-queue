@@ -14,6 +14,7 @@ export interface ClassifiedPR {
   bucket: Bucket
   unresolvedThreads: number
   ciState: string | null
+  hasConflicts: boolean
   deployedEnvs: string[]
   version: string | null
   ageMinutes: number
@@ -43,7 +44,8 @@ export function classifyReviewPRs(
     if (detail.viewerReviewState === 'APPROVED') { skippedCount++; continue }
     if (detail.ciState !== 'SUCCESS') { skippedCount++; continue }
 
-    const classified = buildClassified(pr, detail, detail.unresolvedThreads > 0 ? 'blocked' : 'ready')
+    const isBlocked = detail.unresolvedThreads > 0 || detail.mergeable === 'CONFLICTING'
+    const classified = buildClassified(pr, detail, isBlocked ? 'blocked' : 'ready')
 
     if (classified.bucket === 'ready') ready.push(classified)
     else blocked.push(classified)
@@ -95,7 +97,7 @@ export function classifyMyPRs(
       continue
     }
 
-    if (detail.unresolvedThreads > 0) {
+    if (detail.unresolvedThreads > 0 || detail.mergeable === 'CONFLICTING') {
       blocked.push(buildClassified(pr, detail, 'blocked'))
       continue
     }
@@ -199,7 +201,7 @@ export function classifyDependabotPRs(
       continue
     }
 
-    if (detail.unresolvedThreads > 0) {
+    if (detail.unresolvedThreads > 0 || detail.mergeable === 'CONFLICTING') {
       blocked.push(buildClassified(pr, detail, 'blocked'))
     } else {
       ready.push(buildClassified(pr, detail, 'ready'))
@@ -226,6 +228,7 @@ function buildClassified(pr: SearchPR, detail: PRDetail | null, bucket: Bucket):
     bucket,
     unresolvedThreads: detail?.unresolvedThreads ?? 0,
     ciState: detail?.ciState ?? null,
+    hasConflicts: detail?.mergeable === 'CONFLICTING',
     deployedEnvs: [],
     version: null,
   }

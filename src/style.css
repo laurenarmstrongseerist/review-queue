@@ -157,6 +157,7 @@ td a:hover { text-decoration: underline; }
 #content table .base-cell { text-align: left; width: 100px; }
 #content table .deployed-cell { text-align: left; width: 170px; }
 #content table .version-cell { text-align: left; width: 90px; }
+#content table .reason-cell { text-align: left; width: 180px; }
 #content table .days-cell { text-align: right; width: 90px; }
 
 /* ── Type badges (default) ── */
@@ -235,6 +236,19 @@ tr.merged:hover { opacity: 1; }
 .env-chip:hover { border-color: var(--text-muted); color: var(--link); }
 .env-empty { color: var(--text-muted); }
 .version-cell { font-size: 11px; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.state-pills { display: flex; flex-wrap: wrap; gap: 4px; }
+.state-pill {
+  padding: 1px 6px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface);
+  font-size: 11px; font-weight: 500;
+  white-space: nowrap;
+}
+.state-pill.conflicts { color: var(--red); border-color: var(--red); text-decoration: none; }
+a.state-pill.conflicts:hover { text-decoration: underline; }
+.state-pill.threads { color: var(--yellow); border-color: var(--yellow); }
+a.thread-link { text-decoration: none; color: inherit; }
+a.thread-link:hover { text-decoration: underline; }
 
 /* ── CI status ── */
 .ci-pass { color: var(--green); font-size: 11px; font-weight: 600; text-transform: uppercase; }
@@ -504,6 +518,7 @@ footer { font-size: 13px; color: var(--text-muted); padding-top: 16px; border-to
 [data-theme="rpg"] .base-cell { width: 100px; }
 [data-theme="rpg"] .deployed-cell { width: 170px; }
 [data-theme="rpg"] .version-cell { width: 90px; }
+[data-theme="rpg"] .reason-cell { width: 180px; }
 /* Corner ornaments */
 [data-theme="rpg"] section::before,
 [data-theme="rpg"] section::after {

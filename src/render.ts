@@ -41,6 +41,22 @@ function renderThreadsTd(count: number, theme: ThemeConfig): string {
   return `<td class="threads-cell">${count}</td>`
 }
 
+function renderBlockReasons(pr: ClassifiedPR, theme: ThemeConfig): string {
+  const pills: string[] = []
+  if (pr.hasConflicts) {
+    pills.push(`<a class="state-pill conflicts" href="${pr.url}/conflicts" target="_blank" rel="noopener" title="Open conflict resolver on GitHub">merge conflicts</a>`)
+  }
+  if (pr.unresolvedThreads > 0) {
+    const link = (inner: string, withPillClass: boolean) =>
+      `<a class="thread-link${withPillClass ? ' state-pill threads' : ''}" href="${pr.url}" target="_blank" rel="noopener" title="Open conversation on GitHub">${inner}</a>`
+    pills.push(theme.threadBadgeFn
+      ? link(theme.threadBadgeFn(pr.unresolvedThreads), false)
+      : link(`${pr.unresolvedThreads} thread${pr.unresolvedThreads === 1 ? '' : 's'}`, true))
+  }
+  if (pills.length === 0) return '<span class="env-empty">—</span>'
+  return `<div class="state-pills">${pills.join('')}</div>`
+}
+
 function renderEnvChips(envs: string[], repo: string): string {
   if (envs.length === 0) return '<span class="env-empty">—</span>'
   const chips = envs.map((e) =>
@@ -78,6 +94,7 @@ export interface RenderColumnOpts {
   showBaseBranch?: boolean
   showDeployedEnvs?: boolean
   showVersion?: boolean
+  showBlockReasons?: boolean
   mergedColumn?: boolean // relabel trailing column "Merged" and skip head-branch copy button
 }
 
@@ -87,7 +104,7 @@ export function renderSection(
   theme: ThemeConfig,
   opts: RenderColumnOpts = {},
 ): void {
-  const { showThreads = false, showCI = false, showAuthor = true, showBaseBranch = false, showDeployedEnvs = false, showVersion = false, mergedColumn = false } = opts
+  const { showThreads = false, showCI = false, showAuthor = true, showBaseBranch = false, showDeployedEnvs = false, showVersion = false, showBlockReasons = false, mergedColumn = false } = opts
   container.innerHTML = ''
 
   if (prs.length === 0) {
@@ -108,7 +125,8 @@ export function renderSection(
     container.appendChild(repoHeader)
 
     const thCells = [`<th class="pr-cell">${escapeHtml(theme.colPR)}</th>`, '<th class="type-cell"></th>', `<th class="title-cell">${escapeHtml(theme.colTitle)}</th>`]
-    if (showThreads) thCells.push(`<th class="threads-cell">${escapeHtml(theme.colThreads)}</th>`)
+    if (showBlockReasons) thCells.push(`<th class="reason-cell">${escapeHtml(theme.colReason)}</th>`)
+    else if (showThreads) thCells.push(`<th class="threads-cell">${escapeHtml(theme.colThreads)}</th>`)
     if (showCI) thCells.push(`<th class="ci-cell">${escapeHtml(theme.colCI)}</th>`)
     if (showAuthor) thCells.push(`<th class="author-cell">${escapeHtml(theme.colAuthor)}</th>`)
     if (showBaseBranch) thCells.push(`<th class="base-cell">${escapeHtml(theme.colBase)}</th>`)
@@ -130,7 +148,8 @@ export function renderSection(
         renderTypeTd(type, theme),
         `<td class="title-cell">${escapeHtml(rest)}</td>`,
       ]
-      if (showThreads) cells.push(renderThreadsTd(pr.unresolvedThreads, theme))
+      if (showBlockReasons) cells.push(`<td class="reason-cell">${renderBlockReasons(pr, theme)}</td>`)
+      else if (showThreads) cells.push(renderThreadsTd(pr.unresolvedThreads, theme))
       if (showCI) cells.push(`<td class="ci-cell">${ciStatusHtml(pr.ciState)}</td>`)
       if (showAuthor) cells.push(`<td class="author-cell">${escapeHtml(pr.author)}</td>`)
       if (showBaseBranch) cells.push(`<td class="base-cell">${escapeHtml(pr.baseRefName || '\u2014')}</td>`)
