@@ -161,8 +161,7 @@ export async function fetchViewerLogin(token: string): Promise<string> {
   return json.data.viewer.login
 }
 
-// Returns whether `head` includes `base` in its ancestry. Uses GitHub's compare endpoint:
-// status "ahead" or "identical" → head contains base; "behind"/"diverged" → it does not.
+// GitHub's compare status: "ahead"/"identical" → head contains base; "behind"/"diverged" → it does not.
 export async function isAncestor(token: string, repo: string, base: string, head: string): Promise<boolean> {
   if (base === head) return true
   const [owner, name] = repo.split('/')
@@ -179,7 +178,6 @@ export async function fetchRepoDeployments(token: string, repo: string, sinceMs:
   const [owner, name] = repo.split('/')
   const out: RepoDeployment[] = []
   let before: string | null = null
-  // Safety cap: 10 pages × 100 = 1000 deploys per repo
   for (let i = 0; i < 10; i++) {
     const beforeArg = before ? `, before: "${before}"` : ''
     const query = `query {

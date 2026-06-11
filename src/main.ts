@@ -123,9 +123,7 @@ async function fetchDetails(token: string, prs: SearchPR[], viewerLogin: string)
 // Successful states include INACTIVE — a previously-successful deploy that was superseded.
 const SUCCESS_STATES = new Set(['SUCCESS', 'ACTIVE', 'INACTIVE'])
 
-// For each merged PR derive: (a) which envs it landed in — env attributed only when its tip
-// commit contains the PR merge (ancestry, not timestamp, to avoid rollback false-positives);
-// (b) the first version that shipped it — earliest post-merge deploy whose commit contains it.
+// Ancestry-based attribution (not timestamp): rollback/cherry-pick deploys would otherwise false-positive.
 async function computePRMetadata(
   token: string,
   mergedPRs: SearchPR[],
@@ -203,8 +201,7 @@ async function loadQueue(token: string): Promise<void> {
 
   try {
     const cutoff = lastBusinessDayCutoff()
-    // Shift search date back one day: GitHub interprets `merged:>=YYYY-MM-DD` in UTC,
-    // so a local-midnight cutoff may exclude PRs the client-side filter would keep.
+    // GitHub interprets merged:>=YYYY-MM-DD in UTC; pad −1 day so client cutoffMs makes the precise cut.
     const searchSince = toIsoDate(new Date(cutoff.getTime() - 86_400_000))
     const [reviewPRs, authoredPRs, mergedPRs, viewerLogin] = await Promise.all([
       searchReviewRequested(token),

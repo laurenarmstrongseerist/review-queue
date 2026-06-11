@@ -10,7 +10,7 @@ export interface ClassifiedPR {
   repo: string
   headRefName: string
   baseRefName: string
-  daysOpen: string
+  displayAge: string
   bucket: Bucket
   unresolvedThreads: number
   ciState: string | null
@@ -127,26 +127,22 @@ export function classifyMergedPRs(
   for (const pr of searchResults) {
     const detail = detailsByRepo.get(pr.repo)?.find((d) => d.number === pr.number)
     if (!detail?.mergedAt) continue
-    if (new Date(detail.mergedAt).getTime() < cutoffMs) continue
+    const mergedAtMs = new Date(detail.mergedAt).getTime()
+    if (mergedAtMs < cutoffMs) continue
+    const elapsedMs = Date.now() - mergedAtMs
 
     const classified = buildClassified(pr, detail, 'merged')
-    const elapsedMs = Date.now() - new Date(detail.mergedAt).getTime()
-    classified.daysOpen = formatMergedAgo(detail.mergedAt)
+    classified.displayAge = formatElapsed(elapsedMs)
     classified.ageMinutes = Math.floor(Math.max(0, elapsedMs) / 60_000)
     const meta = metadataByPR.get(`${pr.repo}#${pr.number}`)
     classified.deployedEnvs = meta?.envs ?? []
     classified.version = meta?.version ?? null
     merged.push(classified)
   }
-  merged.sort((a, b) => {
-    const detA = detailsByRepo.get(a.repo)?.find((d) => d.number === a.number)?.mergedAt ?? ''
-    const detB = detailsByRepo.get(b.repo)?.find((d) => d.number === b.number)?.mergedAt ?? ''
-    return detB.localeCompare(detA)
-  })
+  merged.sort((a, b) => a.ageMinutes - b.ageMinutes)
   return merged
 }
 
-// Returns local-midnight timestamp at the start of the most recent weekday strictly before today.
 // Mon → previous Fri. Tue–Fri → yesterday. Sat/Sun → previous Fri.
 export function lastBusinessDayCutoff(now: Date = new Date()): Date {
   const d = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -161,10 +157,6 @@ export function toIsoDate(d: Date): string {
   const mm = String(d.getMonth() + 1).padStart(2, '0')
   const dd = String(d.getDate()).padStart(2, '0')
   return `${yyyy}-${mm}-${dd}`
-}
-
-function formatMergedAgo(mergedAt: string): string {
-  return formatElapsed(Date.now() - new Date(mergedAt).getTime())
 }
 
 // ── Dependabot classification ──
@@ -223,7 +215,7 @@ function buildClassified(pr: SearchPR, detail: PRDetail | null, bucket: Bucket):
     repo: pr.repo,
     headRefName: detail?.headRefName ?? '',
     baseRefName: detail?.baseRefName ?? '',
-    daysOpen: age.display,
+    displayAge: age.display,
     ageMinutes: age.minutes,
     bucket,
     unresolvedThreads: detail?.unresolvedThreads ?? 0,

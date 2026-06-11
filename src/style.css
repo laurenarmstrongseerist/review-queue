@@ -246,6 +246,9 @@ tr.merged:hover { opacity: 1; }
 }
 .state-pill.conflicts { color: var(--red); border-color: var(--red); text-decoration: none; }
 a.state-pill.conflicts:hover { text-decoration: underline; }
+.title-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.title-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.inline-pill { flex-shrink: 0; }
 .state-pill.threads { color: var(--yellow); border-color: var(--yellow); }
 a.thread-link { text-decoration: none; color: inherit; }
 a.thread-link:hover { text-decoration: underline; }
@@ -362,7 +365,7 @@ footer { font-size: 13px; color: var(--text-muted); padding-top: 16px; border-to
 [data-theme="brutalist"] .type-build { background: #888; color: #fff; }
 [data-theme="brutalist"] .type-other { background: #888; color: #fff; }
 [data-theme="brutalist"] .threads-cell { color: #ff0000; font-weight: 700; }
-[data-theme="brutalist"] .days-cell { color: #444; font-weight: 600; }
+[data-theme="brutalist"] .days-cell { color: #444; font-weight: 600; width: 120px; }
 [data-theme="brutalist"] footer { border-top: 4px solid #000; font-family: 'Arial Black', Arial, sans-serif; font-size: 12px; color: #000; padding-top: 12px; }
 [data-theme="brutalist"] #refresh-btn { background: #fff; border: 3px solid #000; border-radius: 0; color: #000; }
 [data-theme="brutalist"] #refresh-btn:hover { background: #000; color: #fff; }

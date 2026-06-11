@@ -41,17 +41,27 @@ function renderThreadsTd(count: number, theme: ThemeConfig): string {
   return `<td class="threads-cell">${count}</td>`
 }
 
+function conflictPillHtml(pr: ClassifiedPR, extraClass = ''): string {
+  return `<a class="state-pill conflicts${extraClass ? ' ' + extraClass : ''}" href="${pr.url}/conflicts" target="_blank" rel="noopener" title="Open conflict resolver on GitHub">merge conflicts</a>`
+}
+
+// Per-row state pills shown in the title cell. Suppressed where a dedicated column already shows them.
+function rowIndicators(pr: ClassifiedPR, suppressed: boolean): string {
+  if (suppressed) return ''
+  const pills: string[] = []
+  if (pr.hasConflicts) pills.push(conflictPillHtml(pr, 'inline-pill'))
+  return pills.join('')
+}
+
 function renderBlockReasons(pr: ClassifiedPR, theme: ThemeConfig): string {
   const pills: string[] = []
-  if (pr.hasConflicts) {
-    pills.push(`<a class="state-pill conflicts" href="${pr.url}/conflicts" target="_blank" rel="noopener" title="Open conflict resolver on GitHub">merge conflicts</a>`)
-  }
+  if (pr.hasConflicts) pills.push(conflictPillHtml(pr))
   if (pr.unresolvedThreads > 0) {
-    const link = (inner: string, withPillClass: boolean) =>
-      `<a class="thread-link${withPillClass ? ' state-pill threads' : ''}" href="${pr.url}" target="_blank" rel="noopener" title="Open conversation on GitHub">${inner}</a>`
-    pills.push(theme.threadBadgeFn
-      ? link(theme.threadBadgeFn(pr.unresolvedThreads), false)
-      : link(`${pr.unresolvedThreads} thread${pr.unresolvedThreads === 1 ? '' : 's'}`, true))
+    const inner = theme.threadBadgeFn
+      ? theme.threadBadgeFn(pr.unresolvedThreads)
+      : `${pr.unresolvedThreads} thread${pr.unresolvedThreads === 1 ? '' : 's'}`
+    const pillClass = theme.threadBadgeFn ? 'thread-link' : 'thread-link state-pill threads'
+    pills.push(`<a class="${pillClass}" href="${pr.url}" target="_blank" rel="noopener" title="Open conversation on GitHub">${inner}</a>`)
   }
   if (pills.length === 0) return '<span class="env-empty">—</span>'
   return `<div class="state-pills">${pills.join('')}</div>`
@@ -143,10 +153,11 @@ export function renderSection(
       const branchBtn = !mergedColumn && pr.headRefName
         ? ` <button type="button" class="branch-btn" data-branch="${escapeHtml(pr.headRefName)}" aria-label="Copy branch ${escapeHtml(pr.headRefName)}">\u2387</button>`
         : ''
+      const indicators = rowIndicators(pr, showBlockReasons)
       const cells = [
         `<td class="pr-cell"><a href="${pr.url}" target="_blank" rel="noopener">#${pr.number}</a>${branchBtn}</td>`,
         renderTypeTd(type, theme),
-        `<td class="title-cell">${escapeHtml(rest)}</td>`,
+        `<td class="title-cell"><div class="title-wrap"><span class="title-text">${escapeHtml(rest)}</span>${indicators}</div></td>`,
       ]
       if (showBlockReasons) cells.push(`<td class="reason-cell">${renderBlockReasons(pr, theme)}</td>`)
       else if (showThreads) cells.push(renderThreadsTd(pr.unresolvedThreads, theme))
@@ -155,7 +166,7 @@ export function renderSection(
       if (showBaseBranch) cells.push(`<td class="base-cell">${escapeHtml(pr.baseRefName || '\u2014')}</td>`)
       if (showDeployedEnvs) cells.push(`<td class="deployed-cell">${renderEnvChips(pr.deployedEnvs, pr.repo)}</td>`)
       if (showVersion) cells.push(`<td class="version-cell">${pr.version ? escapeHtml(pr.version) : '<span class="env-empty">—</span>'}</td>`)
-      cells.push(`<td class="days-cell">${pr.daysOpen}</td>`)
+      cells.push(`<td class="days-cell">${pr.displayAge}</td>`)
 
       const row = document.createElement('tr')
       if (pr.ciState === 'PENDING') row.classList.add('building')
